@@ -1,4 +1,4 @@
-A python Script for downloading all accepted solution of a user(IF YOU USERNAME and PASSWORD) .
+A python Script for downloading all accepted solution of a user(IF YOU HAVE USERNAME and PASSWORD) .
 
 Used BeautifulSoup and requets python module. 
 
