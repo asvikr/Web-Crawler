@@ -2,17 +2,21 @@ import sys
 import understand
 import parser
 import model as m
+import re
 
 """ Using understand get the method name in which error occur"""
 
 path = "/home/asvikr/Aurea_savvion.udb"
-cur_file = "/mnt/ashish/Codenation_Project/Project/Aurea_savvion/output/trunk/bmmain/sbm/src/com/savvion/sbm/bizlogic/server/WFWorkItem.java"
-line_no = 2089
+cur_file = "/mnt/ashish/Codenation_Project/Project/Aurea_savvion/output/trunk/bmmain/sbm/src/com/savvion/sbm/bizlogic/storeevent/BSUtil.java"
+line_no = 310
+key = "val"
 
 p = parser.Parser()
 tree = p.parse_file(sys.argv[1])
 
 block_list = []
+
+child_list = {}
 
 """ Get lexer of file""" 
 
@@ -30,43 +34,15 @@ class MyVisitor(m.Visitor):
 		super(MyVisitor,self).__init__()
 		self.first_field = True
 		self.first_method = True
-		self.predicate_list = []
-		self.lines = []
-		self.if_true = []
-		self.if_false = []
 		self.block = []
-		self.to = 0
-
-	def print_lines(self):
-		print(self.lines)
-
-	def print_predicate_list(self):
-		print(self.predicate_list)
-
-	def print_if_true(self):
-		print(self.if_true)
-
-	def print_if_false(self):
-		print(self.if_false)
-
 
 	def visit_IfThenElse(self,method_decl):
-		# if self.first_method:
-		# 	print
-		# 	print('ifthenelse:')
-		# 	self.first_method = False
-
-		#print(method_decl)
-		self.lines.append(method_decl.lineno)
 		self.predicate_list.append(method_decl.predicate)
-		self.if_true.append(method_decl.if_true)
-		self.if_false.append(method_decl.if_false)
 
 		try:
 			if (method_decl.if_false is not None):
 				self.block.append((method_decl.if_false.startline,method_decl.if_false.endline))
 				self.to+=1
-				#print(method_decl.if_false.startline,method_decl.if_false.endline)
 		except AttributeError:
 			pass
 
@@ -74,12 +50,8 @@ class MyVisitor(m.Visitor):
 			if (method_decl.if_true is not None):
 				self.block.append((method_decl.if_true.startline,method_decl.if_true.endline))
 				self.to+=1
-				#print(method_decl.if_true.startline,method_decl.if_true.endline)
 		except AttributeError:
 			pass
-
-
-
 
 		return True
 
@@ -97,24 +69,20 @@ def get_method_line(par,line_no,lex):
 						return ref.line()
 
 		line_no-=1
-
 	return 1
 
 """ Check for keyword "throw" or "return" """
 
 def check(st,en,lex):
-	for line in (st,en+1):
+	for line in range(st,en+1):
+		#print(line)
 		lexemes = lex.lexemes(line,line)
 		for lexeme in lexemes:
-			en = lexeme.ent()
-			if en:
-				if (en.simplename=='throw') or (en.simplename=='return'):
-					return True
-
-
+			if (lexeme.text()=='throw') or (lexeme.text()=='return'):
+				return True
 	return False
 
-def find_condition(line,lex):
+def find_condition(ifclass,line,lex):
 
 	while line>0:
 		lexemes = lex.lexemes(line,line)
@@ -128,15 +96,27 @@ def find_condition(line,lex):
 				en = lexeme.ent()
 
 				if en:
-					#print(lexeme.text())
-					
+					if str(lexeme.text())==key:
+						lexeme = lexeme.next()
+						chk = 1
+						for l in lexemes:
+							
+							if l.text()=="==":
+								chk = 1
+							elif l.text()=='!=':
+								return ("-1",0)
+							elif l.text()=="null":
+								 for kk in child_list[line]:
+								 	block_list.append(kk)
+								 return ("-1",0)
+							
+
 					if str(en.type())!="boolean":
 						return ("-1",0)
 					else:
 						val = lexeme.text()
-						#print(val)
 						p = 1
-						while(lexeme.next()!=None):
+						while(True):
 							if lexeme.text()=='!=':
 								p = 0
 							elif lexeme.text()=='==':
@@ -153,8 +133,7 @@ def find_condition(line,lex):
 			if lexeme.text() == "else":
 
 				if line in back_dict:
-					#print(back_dict[line])
-					cond = find_condition(back_dict[line],lex)
+					cond = find_condition(ifclass,back_dict[line],lex)
 					if cond[1]==1:
 						return (cond[0],0)
 					else:
@@ -165,18 +144,15 @@ def find_condition(line,lex):
 
 		line-=1
 
+""" Get all condition for comparing with original condition """
 
 def get_condition(ifclass,lex,block_list):
 
 	condition = []
 	sz_list = len(block_list)
-	for i in range(sz_list):
-		cond = find_condition(block_list[i][0],lex)
-		#print(cond)
-		if cond[0]=="-1":
-			return condition
-		else:
-			condition.append(cond)
+	for i in range(len(block_list)):
+		cond = find_condition(ifclass,block_list[i][0],lex)
+		condition.append((cond,block_list[i]))
 
 	return condition
 
@@ -192,19 +168,18 @@ def match_condition(condition,ifclass,target_line,lex,idx):
 		if ifclass.block[i][0]<target_line:
 			return False
 		cond = get_condition(ifclass,lex,[(ifclass.block[i][0],ifclass.block[i][1])])
-		if cond==condition:
-			ch = check(ifclass.block[i][0],ifclass.block[i][1],lex)
-			if ch==True:
-				return ch
+		for conds in cond:
+			if conds[0]==condition:
+				ch = check(conds[1][0],conds[1][1],lex)
+				if ch==True:
+					return ch
 
 	return False
-
 
 """ Main function """
 
 if __name__=='__main__':
 
-	key = "wiID"
 	db = understand.open(path)
 	lex = get_lexer(cur_file)
 	lexemes = lex.lexemes(line_no,line_no)
@@ -220,62 +195,46 @@ if __name__=='__main__':
 
 				ref = en.ref()
 				define_at = ref.line()
-				#par = en.parent.split(".")[-1]
 				par = en.parent().simplename()
 				print(par)
-
 				method_line = get_method_line(par,line_no,lex)
 
-				#print(method_line)
-
-
-
 	ifclass = MyVisitor()
-
 	tree.accept(ifclass)
-	#ifclass.print_lines()
-	print()
-	#ifclass.print_predicate_list()
-	print()
-	#ifclass.print_if_false()
-	print()
-	#ifclass.print_if_true()
-	print()
 
 	sz = len(ifclass.block)
-
-	#print(ifclass.to,sz)
-
 	front_dict = dict()
-
 	back_dict = dict()
-
 	idx = 0
 
 	for i in range(0,sz):
 		front_dict[ifclass.block[i][0]] = ifclass.block[i][1]
 		back_dict[ifclass.block[i][1]] = ifclass.block[i][0]
+		child = []
+		child_list[ifclass.block[i][0]] = list()
 
+		for j in range(0,sz):
+			if i==j:
+				continue
+			else:
+				if (ifclass.block[j][0]>ifclass.block[i][0]) and (ifclass.block[j][1]<ifclass.block[i][1]):
+					child.append(ifclass.block[j])
+
+		child_list[ifclass.block[i][0]] = child
 
 	for i in range(0,sz):
 		if (line_no >= ifclass.block[i][0]) and (line_no<ifclass.block[i][1]):
 			idx = i
-			block_list.append(ifclass.block[i])
+			break
 			
-
-
-	
 	target_line = max(target_line,method_line)
-	#print(target_line)
 
-	condition = get_condition(ifclass,lex,block_list)
-	condition.sort()
+	condition = find_condition(ifclass,ifclass.block[idx][0],lex)
 	print(condition)
-	if len(condition)==0:
+	if condition[0]=='-1':
 		check = False
 	else:
 		check = match_condition(condition,ifclass,target_line,lex,idx)
-
 	
 	if check:
 		print("False Positive")
