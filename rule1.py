@@ -109,12 +109,16 @@ def find_condition(ifclass,line,lex):
 								 for kk in child_list[line]:
 								 	block_list.append(kk)
 								 return ("-1",0)
-							
+					kk = 0
+					if str(lexeme.text()=='!'):
+						kk = 1		
 
 					if str(en.type())!="boolean":
 						return ("-1",0)
 					else:
 						val = lexeme.text()
+						if kk==1:
+							return (val,1)
 						p = 1
 						while(True):
 							if lexeme.text()=='!=':
